@@ -75,6 +75,9 @@ tf.flags.DEFINE_integer(
 tf.flags.DEFINE_integer(
     'batch_size', 16, 'How many images process at one time.')
 
+tf.flags.DEFINE_integer(
+    'test_idx', 0, 'Which version to test. 0 for all')
+
 FLAGS = tf.flags.FLAGS
 
 
@@ -130,11 +133,17 @@ def main(_):
                           FLAGS.checkpoint_path_vgg_16,
                           FLAGS.checkpoint_path_vgg_19]
   normalization_method = ['default','default','default','default','global',
-                          'caffe_rgb','caffe_rgb','caffe_rgb','caffe_rgb','caffe_rgb',
+                          'caffe_rgb','caffe_rgb','default','default','caffe_rgb',
                           'caffe_rgb']
   pred_list = []
   for idx, checkpoint_path in enumerate(checkpoint_path_list, 1):
     with tf.Graph().as_default():
+      if int(FLAGS.test_idx) == 20 and idx in [1,2,3,6,7,10,11]:
+        print("1", int(FLAGS.test_idx), idx)
+        continue
+      if int(FLAGS.test_idx) in [1,2,3,4,5,6,7,8,9,10,11] and int(FLAGS.test_idx) != idx:
+        print("2", int(FLAGS.test_idx), idx)
+        continue
       # Prepare graph
       if idx in [1,2,6,7,10,11]:
         _x_input = tf.placeholder(tf.float32, shape=batch_shape)
@@ -223,11 +232,8 @@ def main(_):
             pred_in.extend(end_points_dict['predictions'].reshape(-1, num_classes))
       pred_list.append(pred_in)
 
-  print(np.shape(pred_list))
-  pred = np.mean(pred_list, axis=0)
-  print(np.shape(pred))
+  pred = np.median(pred_list, axis=0)
   labels = np.argmax(pred, axis=1) # model_num X batch X class_num ==(np.mean)==> batch X class_num ==(np.argmax)==> batch
-  print(np.shape(labels))
   with tf.gfile.Open(FLAGS.output_file, 'w') as out_file:
     for filename, label in zip(filenames_list, labels):
       out_file.write('{0},{1}\n'.format(filename, label))

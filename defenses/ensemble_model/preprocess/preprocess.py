@@ -32,8 +32,8 @@ def image_normalize(
         # Rescale to [0, 255]
         image = tf.multiply(image, 255.0)
         # Convert RGB to BGR
-        red, green, blue = tf.split(2, 3, image)
-        image = tf.concat(2, [blue, green, red])
+        red, green, blue = tf.split(image, [1,1,1], 3)
+        image = tf.concat([blue, green, red], 3)
         tf.subtract(image, caffe_mean)
     elif method == 'caffe_rgb':
         print('Caffe RGB normalize', image.get_shape())
