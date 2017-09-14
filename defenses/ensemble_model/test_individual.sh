@@ -175,7 +175,7 @@
 #  --checkpoint_path_vgg_16=model/vgg_16/vgg_16.ckpt \
 #  --checkpoint_path_vgg_19=model/vgg_19/vgg_19.ckpt \
 #  --test_idx=11
-
+#
 #python defense.py \
 #  --input_dir=../output \
 #  --output_file=result/output_0.csv \

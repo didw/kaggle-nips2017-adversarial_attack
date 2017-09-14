@@ -25,4 +25,5 @@ python defense.py \
   --checkpoint_path_resnet_v2_101=model/resnet_v2_101/resnet_v2_101.ckpt \
   --checkpoint_path_resnet_v2_152=model/resnet_v2_152/resnet_v2_152.ckpt \
   --checkpoint_path_vgg_16=model/vgg_16/vgg_16.ckpt \
-  --checkpoint_path_vgg_19=model/vgg_19/vgg_19.ckpt
+  --checkpoint_path_vgg_19=model/vgg_19/vgg_19.ckpt \
+  --test_idx=20

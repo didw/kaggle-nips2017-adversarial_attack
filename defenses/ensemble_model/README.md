@@ -1,5 +1,4 @@
 ## Individual test for original images
-
 ==== inception v1 ====           
 Defense accuracy: 88.8%          
 NT success: 11.2%                
@@ -80,4 +79,21 @@ NT success: 22.1%
 
 ## Predict using 5 Ensemble model 
 ### (inception_v4, inception_resnet_v2, resnet_v2_101, resnet_v2_152, vgg19)
+==== ENSEMBLE_TUNNED ====
+Defense accuracy: 77.8%
+NT success: 22.2%
+
+## Predict Ensemble model except inception_v3
+==== ENSEMBLE_TUNNED ====
+Defense accuracy: 79.7%
+NT success: 20.3%
+
+## ENSEMBLE METHOD (VOTE)
+==== ENSEMBLE ====
+Defense accuracy: 71.5%
+NT success: 28.5%
+==== ENSEMBLE_TUNNED ====
+Defense accuracy: 74.6%
+NT success: 25.4%
+
 

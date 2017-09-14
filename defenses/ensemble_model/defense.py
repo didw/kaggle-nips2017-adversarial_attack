@@ -78,6 +78,9 @@ tf.flags.DEFINE_integer(
 tf.flags.DEFINE_integer(
     'test_idx', 0, 'Which version to test. 0 for all')
 
+tf.flags.DEFINE_string(
+    'ensemble_type', 'mean', 'Ensemble type (mean, vote)')
+
 FLAGS = tf.flags.FLAGS
 
 
@@ -118,6 +121,7 @@ def load_images(input_dir, batch_shape):
 def main(_):
   batch_shape = [FLAGS.batch_size, FLAGS.image_height, FLAGS.image_width, 3]
   num_classes = 1001
+  ensemble_type = FLAGS.ensemble_type
 
   tf.logging.set_verbosity(tf.logging.INFO)
 
@@ -138,11 +142,9 @@ def main(_):
   pred_list = []
   for idx, checkpoint_path in enumerate(checkpoint_path_list, 1):
     with tf.Graph().as_default():
-      if int(FLAGS.test_idx) == 20 and idx in [1,2,3,6,7,10,11]:
-        print("1", int(FLAGS.test_idx), idx)
+      if int(FLAGS.test_idx) == 20 and idx in [3]:
         continue
       if int(FLAGS.test_idx) in [1,2,3,4,5,6,7,8,9,10,11] and int(FLAGS.test_idx) != idx:
-        print("2", int(FLAGS.test_idx), idx)
         continue
       # Prepare graph
       if idx in [1,2,6,7,10,11]:
@@ -232,8 +234,12 @@ def main(_):
             pred_in.extend(end_points_dict['predictions'].reshape(-1, num_classes))
       pred_list.append(pred_in)
 
-  pred = np.median(pred_list, axis=0)
-  labels = np.argmax(pred, axis=1) # model_num X batch X class_num ==(np.mean)==> batch X class_num ==(np.argmax)==> batch
+  if ensemble_type == 'mean':
+    pred = np.mean(pred_list, axis=0)
+    labels = np.argmax(pred, axis=1) # model_num X batch X class_num ==(np.mean)==> batch X class_num ==(np.argmax)==> batch
+  elif ensemble_type == 'vote':
+    pred = np.argmax(pred_list, axis=2) # model_num X batch X class_num ==(np.mean)==> batch X class_num ==(np.argmax)==> batch
+    labels = np.median(pred, axis=0)
   with tf.gfile.Open(FLAGS.output_file, 'w') as out_file:
     for filename, label in zip(filenames_list, labels):
       out_file.write('{0},{1}\n'.format(filename, label))
