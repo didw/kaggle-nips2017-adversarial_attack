@@ -11,7 +11,12 @@ import numpy as np
 from PIL import Image
 
 import tensorflow as tf
-from tensorflow.contrib.slim.nets import inception
+from tensorflow.contrib.slim.nets import resnet_v2
+from nets import inception
+from nets import resnet_v1
+from nets import vgg
+from model_list import InceptionV1, InceptionV2, InceptionV3, InceptionV4, InceptionResnetV2, ResnetV1_101, ResnetV1_152, ResnetV2_101, ResnetV2_152, Vgg_16, Vgg_19
+
 
 slim = tf.contrib.slim
 
@@ -160,22 +165,45 @@ def main(_):
   batch_shape = [FLAGS.batch_size, FLAGS.image_height, FLAGS.image_width, 3]
   num_classes = 1001
 
+  checkpoint_path_list = [FLAGS.checkpoint_path_inception_v1,
+                          FLAGS.checkpoint_path_inception_v2,
+                          FLAGS.checkpoint_path_inception_v3,
+                          FLAGS.checkpoint_path_inception_v4,
+                          FLAGS.checkpoint_path_inception_resnet_v2,
+                          FLAGS.checkpoint_path_resnet_v1_101,
+                          FLAGS.checkpoint_path_resnet_v1_152,
+                          FLAGS.checkpoint_path_resnet_v2_101,
+                          FLAGS.checkpoint_path_resnet_v2_152,
+                          FLAGS.checkpoint_path_vgg_16,
+                          FLAGS.checkpoint_path_vgg_19]
+
   tf.logging.set_verbosity(tf.logging.INFO)
 
   with tf.Graph().as_default():
     # Prepare graph
     x_input = tf.placeholder(tf.float32, shape=batch_shape)
 
-    model = InceptionModel(num_classes)
+    model_list = []
+    #model_list.append(InceptionV1(num_classes))
+    #model_list.append(InceptionV2(num_classes))
+    model_list.append(InceptionV3(num_classes))
+    #model_list.append(InceptionV4(num_classes))
+    #model_list.append(InceptionResnetV2(num_classes))
+    #model_list.append(ResnetV1_101(num_classes))
+    #model_list.append(ResnetV1_152(num_classes))
+    #model_list.append(ResnetV2_101(num_classes))
+    #model_list.append(ResnetV2_152(num_classes))
+    #model_list.append(Vgg_16(num_classes))
+    #model_list.append(Vgg_19(num_classes))
 
-    fgsm = FastGradientMethod(model)
-    x_adv = fgsm.generate(x_input, eps=eps, clip_min=-1., clip_max=1.)
+    fgsm = FastGradientMethod(model_list)
+    x_adv = fgsm.generate(x_input, eps=eps, ord=1, clip_min=-1., clip_max=1.)
 
     # Run computation
     saver = tf.train.Saver(slim.get_model_variables())
     session_creator = tf.train.ChiefSessionCreator(
         scaffold=tf.train.Scaffold(saver=saver),
-        checkpoint_filename_with_path=FLAGS.checkpoint_path,
+        checkpoint_filename_with_path=checkpoint_path_list,
         master=FLAGS.master)
 
     with tf.train.MonitoredSession(session_creator=session_creator) as sess:

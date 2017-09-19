@@ -102,6 +102,39 @@ class CallableModelWrapper(Model):
         return {self.output_layer: self.callable_fn(x)}
 
 
+class ModelListWrapper(Model):
+
+    def __init__(self, model_list):
+        """
+        Wrap a callable function that takes a tensor as input and returns
+        a tensor as output with the given layer name.
+        :param model_list: 
+        """
+        self.model_list = []
+        for model in model_list:
+            if not isinstance(model, Model):
+                print("added CallableModelWrapper")
+                self.model_list.append(CallableModelWrapper(model, 'probs'))
+            else:
+                print("added simple model")
+                self.model_list.append(model)
+
+    def get_probs(self, x):
+        """
+        :param x: A symbolic representation of the network input
+        :return: A symbolic representation of the output probabilities (i.e.,
+                the output values produced by the softmax layer).
+        """
+        res_prob_list = []
+        for model in self.model_list:
+            try:
+                res_prob_list.append(model.get_layer(x, 'probs'))
+            except NoSuchLayerError:
+                import tensorflow as tf
+                res_prob_list.append(tf.nn.softmax(model.get_logits(x)))
+        return tf.reduce_mean(res_prob_list, axis=0)
+
+
 class NoSuchLayerError(ValueError):
 
     """Raised when a layer that does not exist is requested."""

@@ -5,7 +5,7 @@ import warnings
 import collections
 
 import cleverhans.utils as utils
-from cleverhans.model import Model, CallableModelWrapper
+from cleverhans.model import Model, CallableModelWrapper, ModelListWrapper
 
 import logging
 
@@ -31,7 +31,8 @@ class Attack(object):
             raise ValueError("Backend argument must either be 'tf' or 'th'.")
         if back == 'th' and sess is not None:
             raise Exception("A session should not be provided when using th.")
-        if not isinstance(model, Model):
+
+        if not isinstance(model, Model) and not isinstance(model, list):
             if hasattr(model, '__call__'):
                 warnings.warn("CleverHans support for supplying a callable"
                               " instead of an instance of the"
@@ -234,13 +235,13 @@ class FastGradientMethod(Attack):
     Paper link: https://arxiv.org/abs/1412.6572
     """
 
-    def __init__(self, model, back='tf', sess=None):
+    def __init__(self, model_list, back='tf', sess=None):
         """
         Create a FastGradientMethod instance.
         Note: the model parameter should be an instance of the
         cleverhans.model.Model abstraction provided by CleverHans.
         """
-        super(FastGradientMethod, self).__init__(model, back, sess)
+        super(FastGradientMethod, self).__init__(model_list, back, sess)
         self.feedable_kwargs = {'eps': np.float32,
                                 'y': np.float32,
                                 'y_target': np.float32,
@@ -248,7 +249,10 @@ class FastGradientMethod(Attack):
                                 'clip_max': np.float32}
         self.structural_kwargs = ['ord']
 
-        if not isinstance(self.model, Model):
+        if isinstance(self.model, list):
+            print("self.model is list")
+            self.model = ModelListWrapper(self.model)
+        elif not isinstance(self.model, Model):
             self.model = CallableModelWrapper(self.model, 'probs')
 
     def generate(self, x, **kwargs):
