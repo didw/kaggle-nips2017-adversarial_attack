@@ -10,6 +10,7 @@ from nets import inception
 from nets import resnet_v1
 from nets import vgg
 from preprocess.preprocess import image_normalize
+import numpy as np
 slim = tf.contrib.slim
 
 
@@ -57,7 +58,7 @@ class InceptionV2(object):
           x_input, num_classes=self.num_classes, is_training=False,
           reuse=reuse)
     self.built = True
-    output = end_points['predictions']
+    output = end_points['Predictions']
     # Strip off the extra reshape op at the output
     probs = output.op.inputs[0]
     return probs
@@ -141,15 +142,18 @@ class ResnetV1_101(object):
     reuse = True if self.built else None
     x_input = image_normalize(x_input, normalization_method[5])
     x_input = tf.image.resize_images(x_input, [224, 224])
-    with slim.arg_scope(inception.resnet_arg_scope()):
-      _, end_points = inception.resnet_v1_101(
+    with slim.arg_scope(resnet_v1.resnet_arg_scope()):
+      _, end_points = resnet_v1.resnet_v1_101(
           x_input, num_classes=self.num_classes-1, is_training=False,
           reuse=reuse)
     self.built = True
+    end_points['predictions'] = \
+                  tf.concat([tf.zeros([tf.shape(x_input)[0], 1]), 
+                                  tf.reshape(end_points['predictions'], [-1, 1000])], 
+                                  axis=1)
     output = end_points['predictions']
     # Strip off the extra reshape op at the output
-    probs = output.op.inputs[0]
-    return probs
+    return output
 
 
 class ResnetV1_152(object):
@@ -164,15 +168,18 @@ class ResnetV1_152(object):
     reuse = True if self.built else None
     x_input = image_normalize(x_input, normalization_method[6])
     x_input = tf.image.resize_images(x_input, [224, 224])
-    with slim.arg_scope(inception.resnet_arg_scope()):
-      _, end_points = inception.resnet_v1_152(
+    with slim.arg_scope(resnet_v1.resnet_arg_scope()):
+      _, end_points = resnet_v1.resnet_v1_152(
           x_input, num_classes=self.num_classes-1, is_training=False,
           reuse=reuse)
     self.built = True
+    end_points['predictions'] = \
+                  tf.concat([tf.zeros([tf.shape(x_input)[0], 1]), 
+                                  tf.reshape(end_points['predictions'], [-1, 1000])], 
+                                  axis=1)
     output = end_points['predictions']
     # Strip off the extra reshape op at the output
-    probs = output.op.inputs[0]
-    return probs
+    return output
 
 
 class ResnetV2_101(object):
@@ -186,12 +193,12 @@ class ResnetV2_101(object):
     """Constructs model and return probabilities for given input."""
     reuse = True if self.built else None
     x_input = image_normalize(x_input, normalization_method[7])
-    with slim.arg_scope(inception.resnet_arg_scope()):
-      _, end_points = inception.resnet_v2_101(
+    with slim.arg_scope(resnet_v2.resnet_arg_scope()):
+      _, end_points = resnet_v2.resnet_v2_101(
           x_input, num_classes=self.num_classes, is_training=False,
           reuse=reuse)
     self.built = True
-    output = end_points['Predictions']
+    output = end_points['predictions']
     # Strip off the extra reshape op at the output
     probs = output.op.inputs[0]
     return probs
@@ -208,12 +215,12 @@ class ResnetV2_152(object):
     """Constructs model and return probabilities for given input."""
     reuse = True if self.built else None
     x_input = image_normalize(x_input, normalization_method[8])
-    with slim.arg_scope(inception.resnet_arg_scope()):
-      _, end_points = inception.resnet_v2_152(
+    with slim.arg_scope(resnet_v2.resnet_arg_scope()):
+      _, end_points = resnet_v2.resnet_v2_152(
           x_input, num_classes=self.num_classes, is_training=False,
           reuse=reuse)
     self.built = True
-    output = end_points['Predictions']
+    output = end_points['predictions']
     # Strip off the extra reshape op at the output
     probs = output.op.inputs[0]
     return probs
@@ -231,12 +238,15 @@ class Vgg_16(object):
     reuse = True if self.built else None
     x_input = image_normalize(x_input, normalization_method[9])
     x_input = tf.image.resize_images(x_input, [224, 224])
-    with slim.arg_scope(inception.vgg_arg_scope()):
-      _, end_points = inception.vgg_16(
-          x_input, num_classes=self.num_classes-1, is_training=False,
-          reuse=reuse)
+    with slim.arg_scope(vgg.vgg_arg_scope()):
+      _, end_points = vgg.vgg_16(
+          x_input, num_classes=1000, is_training=False)
     self.built = True
     end_points['predictions'] = tf.nn.softmax(end_points['vgg_16/fc8'])
+    end_points['predictions'] = \
+                  tf.concat([tf.zeros([tf.shape(x_input)[0], 1]), 
+                                  tf.reshape(end_points['predictions'], [-1, 1000])], 
+                                  axis=1)
     output = end_points['predictions']
     return output
 
@@ -253,11 +263,14 @@ class Vgg_19(object):
     reuse = True if self.built else None
     x_input = image_normalize(x_input, normalization_method[10])
     x_input = tf.image.resize_images(x_input, [224, 224])
-    with slim.arg_scope(inception.vgg_arg_scope()):
-      _, end_points = inception.vgg_19(
-          x_input, num_classes=self.num_classes-1, is_training=False,
-          reuse=reuse)
+    with slim.arg_scope(vgg.vgg_arg_scope()):
+      _, end_points = vgg.vgg_19(
+          x_input, num_classes=1000, is_training=False)
     end_points['predictions'] = tf.nn.softmax(end_points['vgg_19/fc8'])
+    end_points['predictions'] = \
+                  tf.concat([tf.zeros([tf.shape(x_input)[0], 1]), 
+                                  tf.reshape(end_points['predictions'], [-1, 1000])], 
+                                  axis=1)
     self.built = True
     output = end_points['predictions']
     return output
