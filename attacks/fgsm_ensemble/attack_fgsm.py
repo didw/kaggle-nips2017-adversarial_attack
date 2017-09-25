@@ -18,6 +18,9 @@ from nets import resnet_v1
 from nets import vgg
 from model_list import InceptionV1, InceptionV2, InceptionV3, InceptionV4, InceptionResnetV2, ResnetV1_101, ResnetV1_152, ResnetV2_101, ResnetV2_152, Vgg_16, Vgg_19
 
+normalization_method = ['default','default','default','default','global',
+                        'caffe_rgb','caffe_rgb','default','default','caffe_rgb',
+                        'caffe_rgb']
 
 slim = tf.contrib.slim
 
@@ -74,7 +77,7 @@ tf.flags.DEFINE_integer(
     'image_height', 299, 'Height of each input images.')
 
 tf.flags.DEFINE_integer(
-    'batch_size', 100, 'How many images process at one time.')
+    'batch_size', 25, 'How many images process at one time.')
 
 tf.flags.DEFINE_integer(
     'test_idx', 0, 'Which version to test. 0 for all')
@@ -132,8 +135,9 @@ def save_images(images, filenames, output_dir):
   for i, filename in enumerate(filenames):
     # Images for inception classifier are normalized to be in [-1, 1] interval,
     # so rescale them back to [0, 1].
-    with tf.gfile.Open(os.path.join(output_dir, filename), 'w') as f:
-      img = (((images[i, :, :, :] + 1.0) * 0.5) * 255.0).astype(np.uint8)
+    with open(os.path.join(output_dir, filename), 'w') as f:
+      images *= 255.0
+      img = images.astype(np.uint8)
       Image.fromarray(img).save(f, format='PNG')
 
 
@@ -163,14 +167,29 @@ def load_total_labels(fname):
   return df
 
 
-def load_labels(filenames, label):
+def load_labels(filenames, label, batch_size):
   fid = map(lambda x: x.replace('.png', ''), filenames)
   fid = pd.DataFrame(fid, columns=['ImageId'])
   lab = np.array(fid.merge(label)['TrueLabel'])
-  one_hot = np.zeros((len(filenames), 1001))
-  one_hot[np.arange(len(filenames)), lab] = 1
+  one_hot = np.zeros((batch_size, 1001))
+  one_hot[np.arange(batch_size), lab] = 1
   return one_hot
 
+
+def make_noise_(image, epsilon):
+  noise = np.random.randint(-epsilon, epsilon, image.shape)/255.0
+  return np.clip(image + noise, 0, 1)
+  noisy_images = x_input + eps * tf.sign(tf.random_normal(batch_shape))
+  x_output = tf.clip_by_value(noisy_images, 0.0, 1.0)
+
+def make_noise(image, epsilon, batch_size):
+  noisy_images = image + eps * tf.sign(tf.random_normal(batch_size))
+  x_output = tf.clip_by_value(noisy_images, 0.0, 1.0)
+  return x_output
+  adv_images = np.zeros((batch_size,) + image.shape[1:])
+  for i in range(batch_size):
+    adv_images[i,:,:,:] = make_noise_(image, epsilon)
+  return adv_images
 
 def main(_):
   # Images for inception classifier are normalized to be in [-1, 1] interval,
@@ -201,6 +220,7 @@ def main(_):
   x_input_list = []
   y_list = []
   prob_list = []
+  loss_list = []
   for i in range(len(checkpoint_path_list)):
     graph = tf.Graph()
     with graph.as_default():
@@ -229,6 +249,7 @@ def main(_):
       if i == 10:
         model = Vgg_19(num_classes)
       prob_list.append(model(x_input_list[i]))
+      loss_list.append(tf.nn.softmax_cross_entropy_with_logits(labels=y_list[i], logits=prob_list[i]))
     graph_list.append(graph)
 
 
@@ -245,16 +266,26 @@ def main(_):
         model_saver.restore(sess, checkpoint_path_list[i])
 
 
-  for filenames, images in load_images(FLAGS.input_dir, batch_shape):
-    #adv_images = make_noise(images, FLAGS.max_epsilon)
+  for filenames, images in load_images(FLAGS.input_dir, [1]+batch_shape[1:]):
+    print("make adversarial images [%s]"%filenames[0])
+    adv_images = make_noise(images, FLAGS.max_epsilon, FLAGS.batch_size)
+    #print("Done")
+    losses = []
     for i in xrange(len(checkpoint_path_list)):
       graph = graph_list[i]
       sess = sess_list[i]
       with sess.as_default():
-        y_labels = load_labels(filenames, total_labels)
-        probs = sess.run(prob_list[i], feed_dict={x_input_list[i]: images})
-        print(np.argmax(probs, axis=1))
-
+        y_labels = load_labels(filenames, total_labels, FLAGS.batch_size)
+        probs, loss = sess.run([prob_list[i], loss_list[i]], feed_dict={x_input_list[i]: adv_images, y_list[i]: y_labels})
+        target = np.argmax(probs, axis=1)
+        losses.append(loss)
+      #print(np.argmax(loss))
+    loss_mean = np.mean(np.array(losses), axis=0)
+    #print(np.shape(loss_mean))
+    cand = loss_mean.argmax()
+    #print(cand)
+    #print("%d's loss: %f" % (cand, loss_mean[cand]))
+    save_images(adv_images[cand], filenames, FLAGS.output_dir)
 
 
 if __name__ == '__main__':

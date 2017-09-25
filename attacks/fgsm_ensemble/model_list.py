@@ -105,7 +105,7 @@ class InceptionV4(object):
     output = end_points['Predictions']
     # Strip off the extra reshape op at the output
     probs = output.op.inputs[0]
-    return probs
+    return output
 
 
 class InceptionResnetV2(object):
@@ -127,7 +127,7 @@ class InceptionResnetV2(object):
     output = end_points['Predictions']
     # Strip off the extra reshape op at the output
     probs = output.op.inputs[0]
-    return probs
+    return output
 
 
 class ResnetV1_101(object):
