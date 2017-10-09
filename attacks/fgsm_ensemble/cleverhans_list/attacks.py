@@ -5,7 +5,7 @@ import warnings
 import collections
 
 import cleverhans.utils as utils
-from cleverhans.model import Model, CallableModelWrapper
+from cleverhans.model import Model, CallableModelWrapper, ModelListWrapper
 
 import logging
 
@@ -29,14 +29,10 @@ class Attack(object):
         """
         if not(back == 'tf' or back == 'th'):
             raise ValueError("Backend argument must either be 'tf' or 'th'.")
-
         if back == 'th' and sess is not None:
             raise Exception("A session should not be provided when using th.")
-        elif back == 'tf' and sess is None:
-            import tensorflow as tf
-            sess = tf.get_default_session()
 
-        if not isinstance(model, Model):
+        if not isinstance(model, Model) and not isinstance(model, list):
             if hasattr(model, '__call__'):
                 warnings.warn("CleverHans support for supplying a callable"
                               " instead of an instance of the"
@@ -212,7 +208,7 @@ class Attack(object):
             preds_max = tf.reduce_max(preds, 1, keep_dims=True)
             original_predictions = tf.to_float(tf.equal(preds,
                                                         preds_max))
-            labels = tf.stop_gradient(original_predictions)
+            labels = original_predictions
         if isinstance(labels, np.ndarray):
             nb_classes = labels.shape[1]
         else:
@@ -229,6 +225,56 @@ class Attack(object):
         return True
 
 
+class EnsembleRNMethod(Attack):
+
+
+    def __init__(self, model_list, back='tf', sess=None):
+        """
+        Create a EnsembleRNMethod instance.
+        """
+        super(EnsembleRNMethod, self).__init__(model_list, back, sess)
+        self.feedable_kwargs = {'eps': np.float32,
+                                'y': np.float32,
+                                'y_target': np.float32,
+                                'clip_min': np.float32,
+                                'clip_max': np.float32}
+        self.structural_kwargs = ['ord']
+        """
+        if isinstance(self.model, list):
+            print("self.model is list")
+            self.model = ModelListWrapper(self.model)
+        elif not isinstance(self.model, Model):
+            self.model = CallableModelWrapper(self.model, 'probs')
+        """
+        if not isinstance(self.model, Model):
+            self.model = CallableModelWrapper(self.model, 'probs')
+
+    def generate(self, x, **kwargs):
+        """
+        Generate symbolic graph for adversarial examples and return.
+        :param x: The model's symbolic inputs.
+        :param eps: (optional float) attack step size (input variation)
+        :param ord: (optional) Order of the norm (mimics NumPy).
+                    Possible values: np.inf, 1 or 2.
+        :param y: (optional) A tensor with the model labels. Only provide
+                  this parameter if you'd like to use true labels when crafting
+                  adversarial samples. Otherwise, model predictions are used as
+                  labels to avoid the "label leaking" effect (explained in this
+                  paper: https://arxiv.org/abs/1611.01236). Default is None.
+                  Labels should be one-hot-encoded.
+        :param y_target: (optional) A tensor with the labels to target. Leave
+                         y_target=None if y is also set. Labels should be
+                         one-hot-encoded.
+        :param clip_min: (optional float) Minimum input component value
+        :param clip_max: (optional float) Maximum input component value
+        """
+        # Parse and save attack-specific parameters
+
+        return self.model.get_probs(x)
+
+
+
+
 class FastGradientMethod(Attack):
 
     """
@@ -239,13 +285,13 @@ class FastGradientMethod(Attack):
     Paper link: https://arxiv.org/abs/1412.6572
     """
 
-    def __init__(self, model, back='tf', sess=None):
+    def __init__(self, model_list, back='tf', sess=None):
         """
         Create a FastGradientMethod instance.
         Note: the model parameter should be an instance of the
         cleverhans.model.Model abstraction provided by CleverHans.
         """
-        super(FastGradientMethod, self).__init__(model, back, sess)
+        super(FastGradientMethod, self).__init__(model_list, back, sess)
         self.feedable_kwargs = {'eps': np.float32,
                                 'y': np.float32,
                                 'y_target': np.float32,
@@ -253,7 +299,10 @@ class FastGradientMethod(Attack):
                                 'clip_max': np.float32}
         self.structural_kwargs = ['ord']
 
-        if not isinstance(self.model, Model):
+        if isinstance(self.model, list):
+            print("self.model is list")
+            self.model = ModelListWrapper(self.model)
+        elif not isinstance(self.model, Model):
             self.model = CallableModelWrapper(self.model, 'probs')
 
     def generate(self, x, **kwargs):
@@ -285,12 +334,13 @@ class FastGradientMethod(Attack):
 
         labels, nb_classes = self.get_or_guess_labels(x, kwargs)
 
-        return fgm(x, self.model.get_probs(x), y=labels, scale=self.scale, shift=self.shift,
+        print("fgm calling")
+        return fgm(x, self.model.get_probs(x), y=labels, eps=self.eps,
                    ord=self.ord, clip_min=self.clip_min,
                    clip_max=self.clip_max,
                    targeted=(self.y_target is not None))
 
-    def parse_params(self, scale=0.3, shift=0.0, ord=np.inf, y=None, y_target=None,
+    def parse_params(self, eps=0.3, ord=np.inf, y=None, y_target=None,
                      clip_min=None, clip_max=None, **kwargs):
         """
         Take in a dictionary of parameters and applies attack-specific checks
@@ -314,8 +364,7 @@ class FastGradientMethod(Attack):
         """
         # Save attack-specific parameters
 
-        self.scale = scale
-        self.shift = shift
+        self.eps = eps
         self.ord = ord
         self.y = y
         self.y_target = y_target
@@ -395,7 +444,6 @@ class BasicIterativeMethod(Attack):
             targeted = False
         else:
             y = tf.to_float(tf.equal(model_preds, preds_max))
-            y = tf.stop_gradient(y)
             targeted = False
 
         y_kwarg = 'y_target' if targeted else 'y'
@@ -754,97 +802,6 @@ class CarliniWagnerL2(Attack):
         self.initial_const = initial_const
         self.clip_min = clip_min
         self.clip_max = clip_max
-
-
-class DeepFool(Attack):
-
-    """
-    DeepFool is an untargeted & iterative attack which is based on an
-    iterative linearization of the classifier. The implementation here
-    is w.r.t. the L2 norm.
-    Paper link: "https://arxiv.org/pdf/1511.04599.pdf"
-    """
-
-    def __init__(self, model, back='tf', sess=None):
-        """
-        Create a DeepFool instance.
-        """
-        super(DeepFool, self).__init__(model, back, sess)
-
-        if self.back == 'th':
-            raise NotImplementedError('Theano version not implemented.')
-
-        import tensorflow as tf
-        self.structural_kwargs = ['over_shoot', 'max_iter', 'clip_max',
-                                  'clip_min', 'nb_candidate']
-
-        if not isinstance(self.model, Model):
-            self.model = CallableModelWrapper(self.model, 'logits')
-
-    def generate(self, x, **kwargs):
-        """
-        Generate symbolic graph for adversarial examples and return.
-        :param x: The model's symbolic inputs.
-        :param nb_candidate: The number of classes to test against, i.e.,
-                             deepfool only consider nb_candidate classes when
-                             attacking(thus accelerate speed). The nb_candidate
-                             classes are chosen according to the prediction
-                             confidence during implementation.
-        :param overshoot: A termination criterion to prevent vanishing updates
-        :param max_iter: Maximum number of iteration for deepfool
-        :param nb_classes: The number of model output classes
-        :param clip_min: Minimum component value for clipping
-        :param clip_max: Maximum component value for clipping
-        """
-
-        import tensorflow as tf
-        from .attacks_tf import jacobian_graph, deepfool_batch
-
-        # Parse and save attack-specific parameters
-        assert self.parse_params(**kwargs)
-
-        # Define graph wrt to this input placeholder
-        logits = self.model.get_logits(x)
-        self.nb_classes = logits.get_shape().as_list()[-1]
-        assert self.nb_candidate <= self.nb_classes,\
-            'nb_candidate should not be greater than nb_classes'
-        preds = tf.reshape(tf.nn.top_k(logits, k=self.nb_candidate)[0],
-                           [-1, self.nb_candidate])
-        # grads will be the shape [batch_size, nb_candidate, image_size]
-        grads = tf.stack(jacobian_graph(preds, x, self.nb_candidate), axis=1)
-
-        # Define graph
-        def deepfool_wrap(x_val):
-            return deepfool_batch(self.sess, x, preds, logits, grads, x_val,
-                                  self.nb_candidate, self.overshoot,
-                                  self.max_iter, self.clip_min, self.clip_max,
-                                  self.nb_classes)
-        return tf.py_func(deepfool_wrap, [x], tf.float32)
-
-    def parse_params(self, nb_candidate=10, overshoot=0.02, max_iter=50,
-                     nb_classes=None, clip_min=0., clip_max=1., **kwargs):
-        """
-        :param nb_candidate: The number of classes to test against, i.e.,
-                             deepfool only consider nb_candidate classes when
-                             attacking(thus accelerate speed). The nb_candidate
-                             classes are chosen according to the prediction
-                             confidence during implementation.
-        :param overshoot: A termination criterion to prevent vanishing updates
-        :param max_iter: Maximum number of iteration for deepfool
-        :param nb_classes: The number of model output classes
-        :param clip_min: Minimum component value for clipping
-        :param clip_max: Maximum component value for clipping
-        """
-        if nb_classes is not None:
-            warnings.warn("The nb_classes argument is depricated and will "
-                          "be removed on 2018-02-11")
-        self.nb_candidate = nb_candidate
-        self.overshoot = overshoot
-        self.max_iter = max_iter
-        self.clip_min = clip_min
-        self.clip_max = clip_max
-
-        return True
 
 
 def fgsm(x, predictions, eps, back='tf', clip_min=None, clip_max=None):

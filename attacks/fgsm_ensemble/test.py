@@ -16,7 +16,6 @@ from tensorflow.contrib.slim.nets import resnet_v2
 from nets import inception
 from nets import resnet_v1
 from nets import vgg
-from preprocess.preprocess import image_normalize
 from preprocess.preprocess import image_invert
 from model_list import InceptionV1, InceptionV2, InceptionV3, InceptionV4, InceptionResnetV2, ResnetV1_101, ResnetV1_152, ResnetV2_101, ResnetV2_152, Vgg_16, Vgg_19
 
@@ -140,6 +139,7 @@ def save_images(images, filenames, output_dir, idx=-1):
     if idx != -1:
       filename = "%s_%d.png"%(filename.replace('.png', ''), idx)
     with open(os.path.join(output_dir, filename), 'w') as f:
+      #image *= 255.0
       img = image.astype(np.uint8)
       Image.fromarray(img).save(f, format='PNG')
 
@@ -219,52 +219,48 @@ def main(_):
   prob_list = []
   loss_list = []
   x_adv_list = []
-  type_list = []
   for i in range(len(checkpoint_path_list)):
     graph = tf.Graph()
     with graph.as_default():
       x_input_list.append(tf.placeholder(tf.float32, shape=batch_shape))
-      type_list.append(tf.placeholder(tf.string, shape=[None]))
       y_list.append(tf.placeholder(tf.float32, shape=[FLAGS.batch_size, num_classes]))
-      shift = 0
       if i == 0:
         model = InceptionV1(num_classes)
-        scale = 2.0 * FLAGS.max_epsilon / 255.0
+        eps = 2.0 * FLAGS.max_epsilon / 255.0
       if i == 1:
         model = InceptionV2(num_classes)
-        scale = 2.0 * FLAGS.max_epsilon / 255.0
+        eps = 2.0 * FLAGS.max_epsilon / 255.0
       if i == 2:
         model = InceptionV3(num_classes)
-        scale = 2.0 * FLAGS.max_epsilon / 255.0
+        eps = 2.0 * FLAGS.max_epsilon / 255.0
       if i == 3:
         model = InceptionV4(num_classes)
-        scale = 2.0 * FLAGS.max_epsilon / 255.0
+        eps = 2.0 * FLAGS.max_epsilon / 255.0
       if i == 4:
         model = InceptionResnetV2(num_classes)
-        scale = 4.3 * FLAGS.max_epsilon / 255.0
+        eps = 4.3 * FLAGS.max_epsilon / 255.0
       if i == 5:
         model = ResnetV1_101(num_classes)
-        scale = FLAGS.max_epsilon
+        eps = FLAGS.max_epsilon
       if i == 6:
         model = ResnetV1_152(num_classes)
-        scale = FLAGS.max_epsilon
+        eps = FLAGS.max_epsilon
       if i == 7:
         model = ResnetV2_101(num_classes)
-        scale = 2.0 * FLAGS.max_epsilon / 255.0
+        eps = 2.0 * FLAGS.max_epsilon / 255.0
       if i == 8:
         model = ResnetV2_152(num_classes)
-        scale = 2.0 * FLAGS.max_epsilon / 255.0
+        eps = 2.0 * FLAGS.max_epsilon / 255.0
       if i == 9:
         model = Vgg_16(num_classes)
-        scale = FLAGS.max_epsilon
+        eps = FLAGS.max_epsilon
       if i == 10:
         model = Vgg_19(num_classes)
-        scale = FLAGS.max_epsilon
+        eps = FLAGS.max_epsilon
       #prob_list.append(model(x_input_list[i]))
-      input_image = image_normalize(x_input_list[i], normalization_method[i])
       fgsm = FastGradientMethod(model)
-      x_adv = fgsm.generate(input_image, y=y_list[i], scale=scale, shift=shift, clip_min=None, clip_max=None)
-      x_adv = image_invert(x_adv, normalization_method[i])
+      x_adv = fgsm.generate(x_input_list[i], y=y_list[i], eps=eps, ord=1, clip_min=None, clip_max=None)
+      x_adv = image_invert(x_input_list[i], normalization_method[i])
       x_adv_list.append(x_adv)
       #loss_list.append(tf.nn.softmax_cross_entropy_with_logits(labels=y_list[i], logits=prob_list[i]))
     graph_list.append(graph)
@@ -288,6 +284,7 @@ def main(_):
   for filenames, images in load_images(FLAGS.input_dir, batch_shape):
     print("make adversarial images [%s]"%filenames[0])
     x_fgsm_list = []
+    test_save_images(images, filenames, FLAGS.output_dir)
     for i in xrange(len(checkpoint_path_list)):
       graph = graph_list[i]
       sess = sess_list[i]
@@ -295,7 +292,7 @@ def main(_):
         y_labels = load_labels(filenames, total_labels, FLAGS.batch_size)
         x_fgsm = sess.run(x_adv_list[i], feed_dict={x_input_list[i]: images, y_list[i]: y_labels})
         x_fgsm_list.append(x_fgsm)
-        #save_images(x_fgsm, filenames, FLAGS.output_dir, i)
+        save_images(x_fgsm, filenames, FLAGS.output_dir, i)
     x_fgsm_ens = np.mean(x_fgsm_list, axis=0)
     save_images(x_fgsm_ens, filenames, FLAGS.output_dir)
 

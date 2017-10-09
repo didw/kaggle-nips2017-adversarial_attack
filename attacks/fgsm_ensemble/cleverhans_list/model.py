@@ -1,5 +1,5 @@
 from abc import ABCMeta
-
+import tensorflow as tf
 
 class Model(object):
 
@@ -100,6 +100,41 @@ class CallableModelWrapper(Model):
 
     def fprop(self, x):
         return {self.output_layer: self.callable_fn(x)}
+
+
+class ModelListWrapper(Model):
+
+    def __init__(self, model_list):
+        """
+        Wrap a callable function that takes a tensor as input and returns
+        a tensor as output with the given layer name.
+        :param model_list: 
+        """
+        self.model_list = []
+        for model in model_list:
+            if not isinstance(model, Model):
+                print("added CallableModelWrapper")
+                self.model_list.append(CallableModelWrapper(model, 'probs'))
+            else:
+                print("added simple model")
+                self.model_list.append(model)
+
+    def get_probs(self, x):
+        """
+        :param x: A symbolic representation of the network input
+        :return: A symbolic representation of the output probabilities (i.e.,
+                the output values produced by the softmax layer).
+        """
+        res_prob_list = []
+        print("called get_probs", self.model_list)
+        for model in self.model_list:
+            try:
+                res_prob_list.append(model.get_layer(x, 'probs'))
+            except NoSuchLayerError:
+                res_prob_list.append(tf.nn.softmax(model.get_logits(x)))
+            import numpy as np
+            print(np.shape(res_prob_list))
+        return res_prob_list
 
 
 class NoSuchLayerError(ValueError):

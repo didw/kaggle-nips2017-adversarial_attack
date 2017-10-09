@@ -21,14 +21,13 @@ def fgsm(x, predictions, eps=0.3, clip_min=None, clip_max=None):
                clip_max=clip_max)
 
 
-def fgm(x, preds, y=None, scale=0.3, shift=0.0, ord=np.inf,
+def fgm(x, preds_list, y=None, eps=0.3, ord=np.inf,
         clip_min=None, clip_max=None,
         targeted=False):
     """
     TensorFlow implementation of the Fast Gradient Method.
     :param x: the input placeholder
-    :param preds: the model's output tensor (the attack expects the
-                  probabilities, i.e., the output of the softmax)
+    :param preds_list: 
     :param y: (optional) A placeholder for the model labels. If targeted
               is true, then provide the target label. Otherwise, only provide
               this parameter if you'd like to use true labels when crafting
@@ -47,51 +46,56 @@ def fgm(x, preds, y=None, scale=0.3, shift=0.0, ord=np.inf,
                      like y.
     :return: a tensor for the adversarial example
     """
-
+    print("fgm called")
     if y is None:
         # Using model predictions as ground truth to avoid label leaking
         preds_max = tf.reduce_max(preds, 1, keep_dims=True)
         y = tf.to_float(tf.equal(preds, preds_max))
-        y = tf.stop_gradient(y)
     y = y / tf.reduce_sum(y, 1, keep_dims=True)
 
-    # Compute loss
-    loss = utils_tf.model_loss(y, preds, mean=False)
-    if targeted:
-        loss = -loss
+    for preds in preds_list:
+        # Compute loss
+        loss = utils_tf.model_loss(y, preds, mean=False)
+        if targeted:
+            loss = -loss
 
-    # Define gradient of loss wrt input
-    grad, = tf.gradients(loss, x)
 
-    if ord == np.inf:
-        # Take sign of gradient
-        normalized_grad = tf.sign(grad)
-        # The following line should not change the numerical results.
-        # It applies only because `normalized_grad` is the output of
-        # a `sign` op, which has zero derivative anyway.
-        # It should not be applied for the other norms, where the
-        # perturbation has a non-zero derivative.
-        normalized_grad = tf.stop_gradient(normalized_grad)
-    elif ord == 1:
-        red_ind = list(xrange(1, len(x.get_shape())))
-        normalized_grad = grad / tf.reduce_sum(tf.abs(grad),
-                                               reduction_indices=red_ind,
-                                               keep_dims=True)
-    elif ord == 2:
-        red_ind = list(xrange(1, len(x.get_shape())))
-        square = tf.reduce_sum(tf.square(grad),
-                               reduction_indices=red_ind,
-                               keep_dims=True)
-        normalized_grad = grad / tf.sqrt(square)
-    else:
-        raise NotImplementedError("Only L-inf, L1 and L2 norms are "
-                                  "currently implemented.")
+        # Define gradient of loss wrt input
+        grad, = tf.gradients(loss, x)
 
-    # Multiply by constant epsilon
-    scaled_grad = scale * normalized_grad + shift
+        if ord == np.inf:
+            # Take sign of gradient
+            normalized_grad = tf.sign(grad)
+            # The following line should not change the numerical results.
+            # It applies only because `normalized_grad` is the output of
+            # a `sign` op, which has zero derivative anyway.
+            # It should not be applied for the other norms, where the
+            # perturbation has a non-zero derivative.
+            normalized_grad = tf.stop_gradient(normalized_grad)
+        elif ord == 1:
+            red_ind = list(xrange(1, len(x.get_shape())))
+            normalized_grad = grad / tf.reduce_sum(tf.abs(grad),
+                                                   reduction_indices=red_ind,
+                                                   keep_dims=True)
+        elif ord == 2:
+            red_ind = list(xrange(1, len(x.get_shape())))
+            square = tf.reduce_sum(tf.square(grad),
+                                   reduction_indices=red_ind,
+                                   keep_dims=True)
+            normalized_grad = grad / tf.sqrt(square)
+        else:
+            raise NotImplementedError("Only L-inf, L1 and L2 norms are "
+                                      "currently implemented.")
+
+        # Multiply by constant epsilon
+        try:
+            scaled_grad += eps * normalized_grad
+        except:
+            scaled_grad = eps * normalized_grad
+        print(np.shape(scaled_grad))
 
     # Add perturbation to original example to obtain adversarial example
-    adv_x = x + scaled_grad
+    adv_x = x + scaled_grad / len(preds_list)
 
     # If clipping is needed, reset all values outside of [clip_min, clip_max]
     if (clip_min is not None) and (clip_max is not None):
@@ -727,116 +731,3 @@ class CarliniWagnerL2(object):
         # return the best solution found
         o_bestl2 = np.array(o_bestl2)
         return o_bestattack
-
-
-def deepfool_batch(sess, x, pred, logits, grads, X, nb_candidate, overshoot,
-                   max_iter, clip_min, clip_max, nb_classes, feed=None):
-    """
-    Applies DeepFool to a batch of inputs
-    :param sess: TF session
-    :param x: The input placeholder
-    :param pred: The model's sorted symbolic output of logits, only the top
-                 nb_candidate classes are contained
-    :param logits: The model's unnormalized output tensor (the input to
-                   the softmax layer)
-    :param grads: Symbolic gradients of the top nb_candidate classes, procuded
-                  from gradient_graph
-    :param X: Numpy array with sample inputs
-    :param nb_candidate: The number of classes to test against, i.e.,
-                         deepfool only consider nb_candidate classes when
-                         attacking(thus accelerate speed). The nb_candidate
-                         classes are chosen according to the prediction
-                         confidence during implementation.
-    :param overshoot: A termination criterion to prevent vanishing updates
-    :param max_iter: Maximum number of iteration for DeepFool
-    :param clip_min: Minimum value for components of the example returned
-    :param clip_max: Maximum value for components of the example returned
-    :param nb_classes: Number of model output classes
-    :return: Adversarial examples
-    """
-    X_adv = deepfool_attack(sess, x, pred, logits, grads, X, nb_candidate,
-                            overshoot, max_iter, clip_min, clip_max, feed=feed)
-
-    return np.asarray(X_adv, dtype=np.float32)
-
-
-def deepfool_attack(sess, x, predictions, logits, grads, sample, nb_candidate,
-                    overshoot, max_iter, clip_min, clip_max, feed=None):
-    """
-    TensorFlow implementation of DeepFool.
-    Paper link: see https://arxiv.org/pdf/1511.04599.pdf
-    :param sess: TF session
-    :param x: The input placeholder
-    :param predictions: The model's sorted symbolic output of logits, only the
-                       top nb_candidate classes are contained
-    :param logits: The model's unnormalized output tensor (the input to
-                   the softmax layer)
-    :param grads: Symbolic gradients of the top nb_candidate classes, procuded
-                 from gradient_graph
-    :param sample: Numpy array with sample input
-    :param nb_candidate: The number of classes to test against, i.e.,
-                         deepfool only consider nb_candidate classes when
-                         attacking(thus accelerate speed). The nb_candidate
-                         classes are chosen according to the prediction
-                         confidence during implementation.
-    :param overshoot: A termination criterion to prevent vanishing updates
-    :param max_iter: Maximum number of iteration for DeepFool
-    :param clip_min: Minimum value for components of the example returned
-    :param clip_max: Maximum value for components of the example returned
-    :return: Adversarial examples
-    """
-    import copy
-
-    adv_x = copy.copy(sample)
-    # Initialize the loop variables
-    iteration = 0
-    current = utils_tf.model_argmax(sess, x, logits, adv_x, feed=feed)
-    if current.shape == ():
-        current = np.array([current])
-    w = np.squeeze(np.zeros(sample.shape[1:]))  # same shape as original image
-    r_tot = np.zeros(sample.shape)
-    original = current  # use original label as the reference
-
-    _logger.debug("Starting DeepFool attack up to {} iterations".
-                  format(max_iter))
-    # Repeat this main loop until we have achieved misclassification
-    while (np.any(current == original) and iteration < max_iter):
-
-        if iteration % 5 == 0 and iteration > 0:
-            _logger.info("Attack result at iteration {} is {}".format(
-                iteration,
-                current))
-        gradients = sess.run(grads, feed_dict={x: adv_x})
-        predictions_val = sess.run(predictions, feed_dict={x: adv_x})
-        for idx in range(sample.shape[0]):
-            pert = np.inf
-            if current[idx] != original[idx]:
-                continue
-            for k in range(1, nb_candidate):
-                w_k = gradients[idx, k, ...] - gradients[idx, 0, ...]
-                f_k = predictions_val[idx, k] - predictions_val[idx, 0]
-                # adding value 0.00001 to prevent f_k = 0
-                pert_k = (abs(f_k) + 0.00001) / np.linalg.norm(w_k.flatten())
-                if pert_k < pert:
-                    pert = pert_k
-                    w = w_k
-            r_i = pert*w/np.linalg.norm(w)
-            r_tot[idx, ...] = r_tot[idx, ...] + r_i
-
-        adv_x = np.clip(r_tot + sample, clip_min, clip_max)
-        current = utils_tf.model_argmax(sess, x, logits, adv_x, feed=feed)
-        if current.shape == ():
-            current = np.array([current])
-        # Update loop variables
-        iteration = iteration + 1
-
-    # need more revision, including info like how many succeed
-    _logger.info("Attack result at iteration {} is {}".format(iteration,
-                 current))
-    _logger.info("{} out of {}".format(sum(current != original),
-                                       sample.shape[0]) +
-                 " becomes adversarial examples at iteration {}".format(
-                     iteration))
-    # need to clip this image into the given range
-    adv_x = np.clip((1+overshoot)*r_tot + sample, clip_min, clip_max)
-    return adv_x
